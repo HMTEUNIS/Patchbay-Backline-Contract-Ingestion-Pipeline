@@ -1,0 +1,23 @@
+{
+  "input": "This amendment dated 2025-06-01 replaces Section 3 (Royalties)...",
+  "output": {
+    "meta": {
+      "kind": "amendment",
+      "effective_from": "2025-06-01",
+      "effective_to": null,
+      "replaced_sections": ["royalties"]
+    },
+    "sections": {
+      "royalties": {
+        "rate_card": [
+          {
+            "revenue_type": "streaming",
+            "territory": "WW",
+            "rate": "0.34"
+          }
+        ],
+        "escalators": []
+      }
+    }
+  }
+}

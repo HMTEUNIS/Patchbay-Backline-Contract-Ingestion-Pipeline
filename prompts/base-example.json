@@ -1,0 +1,31 @@
+{
+  "input": "This agreement is effective from 2023-04-01...",
+  "output": {
+    "meta": {
+      "kind": "base",
+      "effective_from": "2023-04-01",
+      "effective_to": null,
+      "replaced_sections": []
+    },
+    "sections": {
+      "term_territory": {
+        "excluded_territories": []
+      },
+      "royalties": {
+        "rate_card": [
+          {
+            "revenue_type": "streaming",
+            "territory": "WW",
+            "rate": "0.30"
+          }
+        ],
+        "escalators": []
+      },
+      "advances_recoupment": {
+        "account": "AC-00501",
+        "recoupable_classes": ["recording"],
+        "minimum_guarantee_per_period": null
+      }
+    }
+  }
+}
