@@ -35,6 +35,9 @@ type ExampleFile = {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** CPU inference of a full terms document often exceeds three minutes. */
+export const EXTRACTION_TIMEOUT_MS = 15 * 60 * 1000;
+
 export function loadExamples(): { base: ExampleFile; amendment: ExampleFile } {
   return {
     base: readJson(resolve(ROOT, "prompts/base-example.json")),
@@ -208,24 +211,36 @@ export async function extractContract(input: {
   fetchImpl?: typeof fetch;
 }): Promise<ModelExtraction> {
   const fetcher = input.fetchImpl ?? fetch;
-  const response = await fetcher(`${input.host}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: input.model,
-      stream: false,
-      format: EXTRACTION_SCHEMA,
-      options: { temperature: 0, num_ctx: 8192 },
-      messages: [
-        { role: "system", content: buildSystemPrompt() },
-        {
-          role: "user",
-          content: `Extract the contract in ${input.fileName}.\n\n${pageMarkedText(input.pages)}`,
-        },
-      ],
-    }),
-    signal: AbortSignal.timeout(180_000),
-  });
+  let response: Response;
+  try {
+    response = await fetcher(`${input.host}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: input.model,
+        stream: false,
+        format: EXTRACTION_SCHEMA,
+        keep_alive: "30m",
+        options: { temperature: 0, num_ctx: 8192 },
+        messages: [
+          { role: "system", content: buildSystemPrompt() },
+          {
+            role: "user",
+            content: `Extract the contract in ${input.fileName}.\n\n${pageMarkedText(input.pages)}`,
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(EXTRACTION_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (isTimeout(err)) {
+      const minutes = EXTRACTION_TIMEOUT_MS / 60_000;
+      throw new Error(
+        `Ollama did not finish within ${minutes} minutes. On CPU, ${input.model} often needs several minutes per contract. Rerun while the model is still loaded.`,
+      );
+    }
+    throw err;
+  }
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Ollama extraction failed (HTTP ${response.status}): ${detail.slice(0, 500)}`);
@@ -296,6 +311,10 @@ function readJson(path: string): ExampleFile {
     throw new Error(`Prompt example ${path} must have input and output.`);
   }
   return parsed;
+}
+
+function isTimeout(err: unknown): boolean {
+  return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
 }
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {

@@ -222,7 +222,9 @@ async function extractOne(
       io.log(`[fail] ${name}  ${reason}`);
       return { failure: { file, status: "fail", detail: reason } };
     }
-    io.log(`[extract] ${name}  ${parsed.pages.length} page(s)`);
+    io.log(
+      `[extract] ${name}  ${parsed.pages.length} page(s). Waiting on ${config.ollamaModel}; CPU often needs several minutes per file.`,
+    );
     const extraction = await extractContract({
       host: config.ollamaHost,
       model: config.ollamaModel,
