@@ -3,11 +3,12 @@
  * amendments, then insert label.* and rag.contract_chunks.
  */
 
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { basename, relative, resolve, sep } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { stdin, stdout } from "node:process";
 
+import { artistKey } from "./artists.js";
 import { loadConfig } from "./config.js";
 import {
   createPool,
@@ -72,24 +73,33 @@ type ReadyFile = {
   chunks: ClauseChunk[];
 };
 
-const USAGE = `Usage: npm run ingest -- <folder> [--dry-run]
+const USAGE = `Usage: npm run ingest -- <folder> [--dry-run] [--allow-missing-sidecar]
 
-Reads PDF contracts from <folder> (not subfolders) and inserts accepted rows into
-Backline. Amendments ask which base contract they supersede.`;
+Reads PDF contracts from <folder> (not subfolders). A real insert requires
+BACKLINE_DATA_DIR so make embed can see the new sidecar. --dry-run parses,
+extracts, and validates, then writes nothing. Amendments with no eligible base
+contract are refused. One bad file does not stop the rest of the folder.`;
 
-export function parseCli(argv: readonly string[]): { help: boolean; dryRun: boolean; folder: string | null } {
+export function parseCli(argv: readonly string[]): {
+  help: boolean;
+  dryRun: boolean;
+  allowMissingSidecar: boolean;
+  folder: string | null;
+} {
   let dryRun = false;
+  let allowMissingSidecar = false;
   let help = false;
   const positional: string[] = [];
   for (const arg of argv) {
     if (arg === "--dry-run") dryRun = true;
+    else if (arg === "--allow-missing-sidecar") allowMissingSidecar = true;
     else if (arg === "--help" || arg === "-h" || arg === "help") help = true;
     else if (arg === "ingest" || arg === "--") continue;
     else if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}`);
     else positional.push(arg);
   }
   if (positional.length > 1) throw new Error("Pass one folder of PDF contracts.");
-  return { help, dryRun, folder: positional[0] ?? null };
+  return { help, dryRun, allowMissingSidecar, folder: positional[0] ?? null };
 }
 
 export function listPdfs(folder: string): string[] {
@@ -128,6 +138,8 @@ export async function runIngest(argv: readonly string[]): Promise<number> {
     return 1;
   }
 
+  requireSidecarDir(config.backlineDataDir, args.dryRun, args.allowMissingSidecar);
+
   const prompt = makePrompter();
   const io: Io = { log: (line) => console.log(line), prompter: prompt.ask };
   const pool = createPool(config.databaseUrl);
@@ -140,7 +152,7 @@ export async function runIngest(argv: readonly string[]): Promise<number> {
     io.log(`Connected. Next artist id ${max.artists + 1}, next contract id ${max.contracts + 1}.`);
     if (!config.backlineDataDir) {
       io.log(
-        "BACKLINE_DATA_DIR is unset. Accepted contracts still get rag rows with NULL embeddings. Backline's make embed reads {DATA_DIR}/contracts/txt/<stem>.txt for every contract and stops if that sidecar is missing.",
+        "BACKLINE_DATA_DIR is unset, so this run will not write sidecars. make embed stops if any contract is missing contracts/txt/<stem>.txt. It does not change chunks when it stops.",
       );
     }
 
@@ -237,9 +249,7 @@ async function resolveArtists(
   for (const file of files) {
     const key = artistKey(file.extraction.artist.stageName);
     if (artists.has(key) || failedKeys.has(key)) continue;
-    const found = await findArtistsByStageName(pool, file.extraction.artist.stageName);
-    const exact = found.filter((row) => row.stageName === file.extraction.artist.stageName);
-    const matches = exact.length > 0 ? exact : found;
+    const matches = await findArtistsByStageName(pool, file.extraction.artist.stageName);
     if (matches.length > 1) {
       failedKeys.add(key);
       const idsLabel = matches.map((row) => row.id).join(", ");
@@ -562,10 +572,6 @@ function citeChunks(chunks: ClauseChunk[]): string {
     .join(", ");
 }
 
-function artistKey(stageName: string): string {
-  return stageName.normalize("NFKC").replaceAll("“", '"').replaceAll("”", '"').trim().toLowerCase();
-}
-
 function earliestDate(values: readonly string[]): string | null {
   const dates = values.filter(isIsoDate).sort();
   return dates[0] ?? null;
@@ -582,6 +588,21 @@ function isCountry(value: string | null | undefined): value is string {
 function errorMessage(err: unknown): string {
   if (err instanceof ReviewError || err instanceof Error) return err.message;
   return String(err);
+}
+
+function requireSidecarDir(dataDir: string | null, dryRun: boolean, allowMissing: boolean): void {
+  if (dryRun || allowMissing) return;
+  if (!dataDir) {
+    throw new Error(
+      "Set BACKLINE_DATA_DIR to Backline's data directory before inserting. make embed reads contracts/txt/<stem>.txt for every contract and stops if one file is missing. --dry-run writes nothing. --allow-missing-sidecar inserts anyway and leaves the sidecar for you to copy.",
+    );
+  }
+  const txtDir = join(dataDir, "contracts", "txt");
+  if (!existsSync(txtDir)) {
+    throw new Error(
+      `BACKLINE_DATA_DIR (${dataDir}) has no contracts/txt directory. Point it at the data folder that already holds the seeded sidecars.`,
+    );
+  }
 }
 
 function makePrompter(): { ask: Prompter; close: () => void } {

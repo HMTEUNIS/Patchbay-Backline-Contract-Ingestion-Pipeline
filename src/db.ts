@@ -5,6 +5,8 @@
 
 import pg from "pg";
 
+import { matchArtists } from "./artists.js";
+
 export class IdAllocator {
   private nextArtistId: number;
   private nextContractId: number;
@@ -68,17 +70,16 @@ export async function findArtistsByStageName(pool: pg.Pool, stageName: string): 
   const result = await pool.query(
     `SELECT id::text AS id, stage_name, legal_name, joined_at::text AS joined_at, country
      FROM label.artists
-     WHERE lower(stage_name) = lower($1)
      ORDER BY id`,
-    [stageName],
   );
-  return result.rows.map((row: Record<string, string>) => ({
+  const rows = result.rows.map((row: Record<string, string>) => ({
     id: asId(row.id, "label.artists.id"),
     stageName: row.stage_name ?? "",
     legalName: row.legal_name ?? "",
     joinedAt: (row.joined_at ?? "").slice(0, 10),
     country: row.country ?? "",
   }));
+  return matchArtists(rows, stageName);
 }
 
 export async function findBaseContracts(

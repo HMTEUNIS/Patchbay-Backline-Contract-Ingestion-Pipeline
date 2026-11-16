@@ -164,6 +164,7 @@ test("the CLI accepts a folder and dry-run", () => {
   assert.deepEqual(parseCli(["ingest", "./contracts", "--dry-run"]), {
     help: false,
     dryRun: true,
+    allowMissingSidecar: false,
     folder: "./contracts",
   });
 });
