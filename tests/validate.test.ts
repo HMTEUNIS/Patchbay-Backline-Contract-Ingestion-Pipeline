@@ -110,6 +110,25 @@ test("rejects an unknown section, an unknown kind, and a rate outside [0, 1]", (
   assert.throws(() => parseTermsDoc(tooHigh), /rate/);
 });
 
+test("accepts a whole-number amount and strips thousands separators", () => {
+  const whole = baseDoc();
+  (
+    whole["sections"] as { advances_recoupment: { minimum_guarantee_per_period: string } }
+  ).advances_recoupment.minimum_guarantee_per_period = "1500";
+  assert.equal(parseTermsDoc(whole).sections.advances_recoupment?.minimum_guarantee_per_period, "1500");
+
+  const commas = baseDoc();
+  (
+    commas["sections"] as { advances_recoupment: { minimum_guarantee_per_period: string } }
+  ).advances_recoupment.minimum_guarantee_per_period = "1,500.00";
+  (
+    commas["sections"] as { royalties: { escalators: { threshold_usd: string }[] } }
+  ).royalties.escalators[0]!.threshold_usd = "250,000";
+  const doc = parseTermsDoc(commas);
+  assert.equal(doc.sections.advances_recoupment?.minimum_guarantee_per_period, "1500.00");
+  assert.equal(doc.sections.royalties?.escalators[0]?.threshold_usd, "250000");
+});
+
 test("rejects duplicate rate-card pairs and a non-decimal rate", () => {
   const duplicate = baseDoc();
   const card = (duplicate["sections"] as { royalties: { rate_card: object[] } }).royalties.rate_card;

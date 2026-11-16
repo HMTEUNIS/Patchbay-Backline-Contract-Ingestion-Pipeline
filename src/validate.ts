@@ -264,10 +264,11 @@ function readDecimal(value: unknown, field: string): string {
     return String(value);
   }
   if (typeof value === "string") {
-    if (!isDecimalString(value)) {
+    const cleaned = sanitizeDecimal(value);
+    if (!isDecimalString(cleaned)) {
       throw new TermsValidationError(`${field}: not a decimal: ${quote(value)}`);
     }
-    return value;
+    return cleaned;
   }
   const kind = Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
   throw new TypeError(`${field}: cannot read ${kind} as Decimal`);
@@ -275,6 +276,11 @@ function readDecimal(value: unknown, field: string): string {
 
 function isDecimalString(value: string): boolean {
   return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value);
+}
+
+/** "1,500.00" and "1500" are both decimals. Backline rejects the comma. */
+function sanitizeDecimal(value: string): string {
+  return value.trim().replaceAll(",", "");
 }
 
 /** Compare two decimal strings. Returns -1, 0, or 1. */
