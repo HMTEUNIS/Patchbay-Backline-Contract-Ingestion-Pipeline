@@ -52,8 +52,8 @@ For each file on a real run:
 
 1. Extract text per page with `unpdf`, and keep page numbers for the citation log. Each PDF is opened on its own so one file cannot leak text into the next.
 2. Split the text into clause chunks. A line that starts with `§1.` or `§A1.` starts a clause. The clause number is the token before the period (`§3`, `§A1`). The heading stored on the chunk is that full line (`§3. ROYALTIES`). Text before the first numbered heading is one chunk with `clause_no` `title` and `heading` equal to the contract's first line, for example `RECORDING AND ROYALTY AGREEMENT — FBR-C-00501`. A body mention such as `§3 (Royalties)` stays inside the amendment clause. `content_hash` is the sha256 of the clause body. Page numbers are printed in the log and are not columns in `rag.contract_chunks`.
-3. Ask Ollama for terms. Rates in the prompt examples are strings (`"0.30"`). Percentages in the PDF (`20%`) are supposed to come back as decimal strings (`"0.20"`).
-4. Validate. A failure prints the error and the extracted JSON. That file is not inserted.
+3. Ask Ollama for terms. Rates in the prompt examples are strings (`"0.30"`). Percentages in the PDF (`20%`) are supposed to come back as decimal strings (`"0.20"`). On CPU, one file often takes several minutes. The request waits up to 15 minutes, and Ollama is asked to keep the model loaded for 30 minutes between files.
+4. Validate. Thousands separators are removed, so `"1,500.00"` is stored as `"1500.00"`, and a whole number such as `"1500"` is accepted. A minimum guarantee or escalator threshold must equal a dollar amount written in that PDF. `$1,500.00` read as `1.50` is put back to `1500.00` when the PDF does not also write `$1.50`, and the log shows `[repair]`. Any other dollar amount the PDF does not write fails the file. A failure prints the error and the extracted JSON. That file is not inserted.
 5. For `kind: "amendment"`, ask: "This amendment replaces [sections]. Which base contract does it supersede?" The choices are `label.contracts` rows for the same artist with `kind = 'base'` and `effective_from` on or before the amendment. Bases from the same run are inserted first, so they appear in that list. If the list is empty, the file is failed and nothing is inserted. `supersedes_contract_id` is `NOT NULL`, so there is no row to write without a base.
 6. Insert the artist when the stage name is new, then the contract, terms, amendment row, and chunks. Chunk `embedding` and `embedding_model` are `NULL`.
 
@@ -73,7 +73,9 @@ The checker follows `backline/royaltycalc/terms.py` and `tests/royaltycalc/test_
 
 | Check | What fails |
 | --- | --- |
-| `rate` | Must be a string in `[0, 1]`. `0.30` raises `TypeError`. `"1.01"` and `"-0.10"` fail. |
+| `rate` | Must be a string in `[0, 1]`. A JSON number such as `0.30` raises `TypeError`. `"1.01"` and `"-0.10"` fail. |
+| Dollar amount | `"1,500.00"` is stored as `"1500.00"`. `"1500"` is accepted. |
+| Guarantee and threshold | Must equal a `$` amount in the PDF. `$1,500.00` emitted as `1.50` is corrected when that is the only reading. Any other amount the PDF does not write fails the file. |
 | `revenue_type` | `streaming`, `download`, `sync`, `physical`. Anything else, including `merch`, rejects the whole document. |
 | `kind` | `base` or `amendment`. |
 | Base sections | All three sections, and `replaced_sections` is `[]`. |
@@ -91,7 +93,7 @@ npm test
 npm run typecheck
 ```
 
-`tests/parse.test.ts` reads one base PDF and one amendment PDF when the sibling `backline/data/contracts` tree is present. The Ollama call itself is not exercised. The float-rate and unknown-type cases are fixtures, so they run without a model.
+`tests/parse.test.ts` reads one base PDF and one amendment PDF when the sibling `backline/data/contracts` tree is present. The Ollama call itself is not exercised. The float-rate, unknown-type, and dollar-amount cases are fixtures, so they run without a model.
 
 ## Verification
 
@@ -107,7 +109,7 @@ npm run typecheck
 
 ## Limitations
 
-Few-shot prompting is not fine-tuning. `llama3.2:3b` can still misread unusual language. Validation catches structural mistakes, not a wrong rate that is still a plausible string. Amendment review is mandatory.
+Few-shot prompting is not fine-tuning. `llama3.2:3b` can still misread unusual language. Validation catches structural mistakes, a dollar amount that is not written in the PDF, and the specific misread of a thousands comma as a decimal point. It does not catch a wrong rate that is still a plausible string. Amendment review is mandatory. CPU inference of this model often needs several minutes per file, and a request that runs longer than 15 minutes fails that file.
 
 Patchbay requires `term_territory` on base contracts. Backline's parser treats that section as optional. A base contract that omits territory terms is rejected here, and the stored JSON still passes `parse_terms_doc` when the section is present with `excluded_territories`.
 
