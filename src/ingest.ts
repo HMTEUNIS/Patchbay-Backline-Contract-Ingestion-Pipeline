@@ -32,7 +32,13 @@ import {
   ReviewError,
   type Prompter,
 } from "./review.js";
-import { parseTermsDoc, type SectionKey, type TermsDoc } from "./validate.js";
+import {
+  assertDollarsInSource,
+  parseTermsDoc,
+  repairCommaDollars,
+  type SectionKey,
+  type TermsDoc,
+} from "./validate.js";
 
 type Io = {
   log: (line: string) => void;
@@ -379,6 +385,10 @@ async function prepareFiles(
         },
         sections,
       });
+      for (const note of repairCommaDollars(file.extracted.parsed.text, terms)) {
+        io.log(`[repair] ${name}  ${note}`);
+      }
+      assertDollarsInSource(file.extracted.parsed.text, terms);
       if (terms.meta.kind === "base" && terms.sections.royalties?.rate_card.length === 0) {
         io.log(`[warn] ${name}  royalties.rate_card is empty`);
       }

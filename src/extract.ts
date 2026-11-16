@@ -72,6 +72,7 @@ Rules:
 - A base contract includes all three sections and replaced_sections [].
 - An amendment includes exactly the replaced sections and no others. If you cannot tell which sections are replaced, set replaced_sections_uncertain to true, replaced_sections to [], and sections to {}. Do not guess.
 - account is the recoupment account designation (AC-##### or XC-####). recoupable_classes are the named classes, such as recording, video, and tour_support. minimum_guarantee_per_period is a decimal string or null. Escalator threshold_usd is the dollar amount as a string ("250000") and bump is a decimal string. Use [] when there is no escalation.
+- A comma in a dollar amount is a thousands separator, never a decimal point. US $1,500.00 is "1500.00", not "1.50". US $250,000.00 is "250000.00". Omit an escalator or guarantee the document does not state.
 - artist.stage_name is the professional name and artist.legal_name is the legal name, copied without surrounding quotes. country is an ISO-2 code only when the document states one, otherwise null. joined_at is YYYY-MM-DD only when the document states when the artist joined, otherwise null.
 - Copy only facts that appear in the document. Page markers are citations, not contract text.`;
 }

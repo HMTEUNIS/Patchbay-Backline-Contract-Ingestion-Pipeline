@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseTermsDoc, TermsValidationError } from "../src/validate.js";
+import {
+  assertDollarsInSource,
+  parseTermsDoc,
+  repairCommaDollars,
+  TermsValidationError,
+} from "../src/validate.js";
 
 function baseDoc(): Record<string, unknown> {
   return {
@@ -127,6 +132,46 @@ test("accepts a whole-number amount and strips thousands separators", () => {
   const doc = parseTermsDoc(commas);
   assert.equal(doc.sections.advances_recoupment?.minimum_guarantee_per_period, "1500.00");
   assert.equal(doc.sections.royalties?.escalators[0]?.threshold_usd, "250000");
+});
+
+test("restores a thousands amount the model read as 1.50", () => {
+  const shifted = parseTermsDoc(baseDoc());
+  shifted.sections.advances_recoupment!.minimum_guarantee_per_period = "1.50";
+  const text = "Minimum guarantee US $1,500.00. Escalation above US $250,000.00.";
+  const notes = repairCommaDollars(text, shifted);
+  assert.deepEqual(notes, [
+    "minimum_guarantee_per_period 1.50 corrected to 1500.00; the comma in the contract is a thousands separator",
+  ]);
+  assert.equal(shifted.sections.advances_recoupment?.minimum_guarantee_per_period, "1500.00");
+  assert.doesNotThrow(() => assertDollarsInSource(text, shifted));
+
+  const threshold = parseTermsDoc(baseDoc());
+  threshold.sections.royalties!.escalators[0]!.threshold_usd = "250";
+  repairCommaDollars("Escalation US $250,000.00", threshold);
+  assert.equal(threshold.sections.royalties?.escalators[0]?.threshold_usd, "250000.00");
+});
+
+test("rejects a dollar amount the contract does not write", () => {
+  const invented = parseTermsDoc(baseDoc());
+  invented.sections.advances_recoupment!.minimum_guarantee_per_period = "42";
+  const text = "Minimum guarantee US $1,500.00. Escalation above US $250,000.00.";
+  assert.deepEqual(repairCommaDollars(text, invented), []);
+  assert.throws(() => assertDollarsInSource(text, invented), /minimum_guarantee_per_period is 42/);
+
+  const raw = baseDoc();
+  (
+    raw["sections"] as { advances_recoupment: { minimum_guarantee_per_period: string } }
+  ).advances_recoupment.minimum_guarantee_per_period = "1,500.00";
+  assert.doesNotThrow(() => assertDollarsInSource(text, parseTermsDoc(raw)));
+
+  const small = parseTermsDoc(baseDoc());
+  small.sections.advances_recoupment!.minimum_guarantee_per_period = "1.50";
+  const mixed = "Pay US $1.50, US $1,500.00, and US $250,000.";
+  assert.deepEqual(repairCommaDollars(mixed, small), []);
+  assert.equal(small.sections.advances_recoupment?.minimum_guarantee_per_period, "1.50");
+  assert.doesNotThrow(() => assertDollarsInSource(mixed, small));
+
+  assert.doesNotThrow(() => assertDollarsInSource("no dollar amounts", parseTermsDoc(amendmentDoc())));
 });
 
 test("rejects duplicate rate-card pairs and a non-decimal rate", () => {

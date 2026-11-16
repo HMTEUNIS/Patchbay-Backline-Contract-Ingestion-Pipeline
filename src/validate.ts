@@ -283,6 +283,66 @@ function sanitizeDecimal(value: string): string {
   return value.trim().replaceAll(",", "");
 }
 
+const DOLLAR_AMOUNT = /(?:US\s*)?\$\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)/g;
+
+type WrittenDollar = { canonical: string; misread: string | null };
+
+/** Dollar amounts written in the contract, with thousands separators removed. */
+export function dollarAmountsIn(text: string): string[] {
+  return writtenDollars(text).map((item) => item.canonical);
+}
+
+/**
+ * $1,500.00 read with the comma as a decimal point is 1.500, which the model
+ * emits as 1.50. Put the written amount back when that is the only reading.
+ * Returns a note for each field changed.
+ */
+export function repairCommaDollars(text: string, doc: TermsDoc): string[] {
+  const written = writtenDollars(text);
+  const notes: string[] = [];
+  const repair = (field: string, value: string): string => {
+    if (written.some((item) => cmpDecimal(item.canonical, value) === 0)) return value;
+    const hits = written.filter((item) => item.misread != null && cmpDecimal(item.misread, value) === 0);
+    if (hits.length !== 1) return value;
+    const corrected = hits[0]?.canonical;
+    if (!corrected) return value;
+    notes.push(`${field} ${value} corrected to ${corrected}; the comma in the contract is a thousands separator`);
+    return corrected;
+  };
+  const advances = doc.sections.advances_recoupment;
+  if (advances?.minimum_guarantee_per_period != null) {
+    advances.minimum_guarantee_per_period = repair(
+      "minimum_guarantee_per_period",
+      advances.minimum_guarantee_per_period,
+    );
+  }
+  for (const escalator of doc.sections.royalties?.escalators ?? []) {
+    escalator.threshold_usd = repair("threshold_usd", escalator.threshold_usd);
+  }
+  return notes;
+}
+
+/**
+ * A model can read the comma in $1,500.00 as a decimal point and emit "1.50".
+ * Dollar fields have to equal an amount the contract actually writes.
+ */
+export function assertDollarsInSource(text: string, doc: TermsDoc): void {
+  const source = dollarAmountsIn(text);
+  const checks: { field: string; value: string }[] = [];
+  const minimum = doc.sections.advances_recoupment?.minimum_guarantee_per_period;
+  if (minimum != null) checks.push({ field: "minimum_guarantee_per_period", value: minimum });
+  for (const escalator of doc.sections.royalties?.escalators ?? []) {
+    checks.push({ field: "threshold_usd", value: escalator.threshold_usd });
+  }
+  for (const check of checks) {
+    if (source.some((amount) => cmpDecimal(amount, check.value) === 0)) continue;
+    const listed = source.length > 0 ? source.join(", ") : "none";
+    throw new TermsValidationError(
+      `${check.field} is ${check.value}, but the contract states these dollar amounts: ${listed}. A comma in a figure such as $1,500.00 is a thousands separator.`,
+    );
+  }
+}
+
 /** Compare two decimal strings. Returns -1, 0, or 1. */
 export function cmpDecimal(a: string, b: string): number {
   const left = scale(a);
@@ -300,6 +360,30 @@ export function cmpDecimal(a: string, b: string): number {
   if (lInt === rInt) return 0;
   const cmp = lInt < rInt ? -1 : 1;
   return left.sign < 0 ? -cmp : cmp;
+}
+
+function writtenDollars(text: string): WrittenDollar[] {
+  const found: WrittenDollar[] = [];
+  for (const match of text.matchAll(DOLLAR_AMOUNT)) {
+    const raw = match[1];
+    if (!raw) continue;
+    const canonical = sanitizeDecimal(raw);
+    if (!isDecimalString(canonical)) continue;
+    if (found.some((existing) => cmpDecimal(existing.canonical, canonical) === 0)) continue;
+    found.push({ canonical, misread: commaAsDecimal(raw) });
+  }
+  return found;
+}
+
+/** "1,500.00" misread at the comma is "1.500", equal to "1.50". */
+function commaAsDecimal(raw: string): string | null {
+  const comma = raw.indexOf(",");
+  if (comma < 0) return null;
+  const head = raw.slice(0, comma);
+  const groups = raw.slice(comma + 1).split(".")[0]?.replaceAll(",", "");
+  if (!groups) return null;
+  const misread = `${head}.${groups}`;
+  return isDecimalString(misread) ? misread : null;
 }
 
 function scale(value: string): { sign: -1 | 0 | 1; whole: string; frac: string } {
