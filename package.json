@@ -9,6 +9,7 @@
   },
   "scripts": {
     "ingest": "tsx scripts/ingest.ts",
+    "sources": "tsx scripts/sources.ts",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

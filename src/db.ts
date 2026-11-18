@@ -132,6 +132,12 @@ export async function withTransaction<T>(
   }
 }
 
+/** Adds the relative source-PDF path used by the demo. Existing rows stay null until backfill. */
+export async function ensureSourceColumns(pool: pg.Pool): Promise<void> {
+  await pool.query("ALTER TABLE label.contracts ADD COLUMN IF NOT EXISTS source_path TEXT");
+  await pool.query("ALTER TABLE rag.contract_chunks ADD COLUMN IF NOT EXISTS source_path TEXT");
+}
+
 function asId(value: unknown, label: string): number {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
   if (!Number.isSafeInteger(n) || n < 0) {

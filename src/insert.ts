@@ -24,6 +24,8 @@ export type InsertPlan = {
   contractId: number;
   artistId: number;
   docPath: string;
+  /** Relative PDF path, such as nova-hale/amendments/PB-A-0001_nova-hale.pdf. No host prefix. */
+  sourcePath: string;
   effectiveFrom: string;
   effectiveTo: string | null;
   kind: "base" | "amendment";
@@ -56,8 +58,8 @@ export async function insertContract(client: Queryable, plan: InsertPlan): Promi
   }
 
   await client.query(
-    `INSERT INTO label.contracts (id, artist_id, doc_path, effective_from, effective_to, kind)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+    `INSERT INTO label.contracts (id, artist_id, doc_path, effective_from, effective_to, kind, source_path)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       plan.contractId,
       plan.artistId,
@@ -65,6 +67,7 @@ export async function insertContract(client: Queryable, plan: InsertPlan): Promi
       plan.effectiveFrom,
       plan.effectiveTo,
       plan.kind,
+      plan.sourcePath,
     ],
   );
 
@@ -86,8 +89,8 @@ export async function insertContract(client: Queryable, plan: InsertPlan): Promi
     await client.query(
       `INSERT INTO rag.contract_chunks (
          contract_id, clause_no, part, heading, content, content_hash,
-         artist_id, kind, effective_from, effective_to, embedding, embedding_model
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL)`,
+         artist_id, kind, effective_from, effective_to, source_path, embedding, embedding_model
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL)`,
       [
         plan.contractId,
         chunk.clauseNo,
@@ -99,6 +102,7 @@ export async function insertContract(client: Queryable, plan: InsertPlan): Promi
         plan.kind,
         plan.effectiveFrom,
         plan.effectiveTo,
+        plan.sourcePath,
       ],
     );
   }

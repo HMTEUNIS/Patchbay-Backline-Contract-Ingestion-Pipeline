@@ -44,6 +44,7 @@ function plan(doc: TermsDoc): InsertPlan {
     contractId: 9,
     artistId: 3,
     docPath: "contracts/horizon.pdf",
+    sourcePath: "horizon/base/FBR-C-00009_horizon.pdf",
     effectiveFrom: "2023-04-01",
     effectiveTo: null,
     kind: "base",

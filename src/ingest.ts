@@ -13,6 +13,7 @@ import { loadConfig } from "./config.js";
 import {
   createPool,
   docPathExists,
+  ensureSourceColumns,
   findArtistsByStageName,
   findBaseContracts,
   IdAllocator,
@@ -22,6 +23,7 @@ import {
 } from "./db.js";
 import { assertOllamaReady, extractContract, type ModelExtraction } from "./extract.js";
 import { insertContract, writeSidecar, type InsertPlan } from "./insert.js";
+import { copySourcePdf, documentsRoot, sourceRelativePath } from "./sources.js";
 import { chunkDocument, parsePdf, unreadableReason, type ClauseChunk, type ParsedDocument } from "./parse.js";
 import {
   applyReplacedSections,
@@ -153,6 +155,7 @@ export async function runIngest(argv: readonly string[]): Promise<number> {
 
   try {
     await checkReady(pool, config.ollamaHost, config.ollamaModel, io);
+    if (!args.dryRun) await ensureSourceColumns(pool);
     const max = await readMaxIds(pool);
     const ids = new IdAllocator(max.artists, max.contracts);
     io.log(`Connected. Next artist id ${max.artists + 1}, next contract id ${max.contracts + 1}.`);
@@ -450,10 +453,12 @@ async function commitFile(
     io.log(
       `[dry-run] ${name}  ${plan.kind} contract ${plan.contractId} artist ${plan.artistId} chunks ${plan.chunks.length}`,
     );
+    io.log(`  source ${plan.sourcePath}`);
     io.log(`  ${cite}`);
     io.log(JSON.stringify(plan.terms, null, 2));
     return { file: file.extracted.file, status: "dry-run", detail: "validated, not inserted" };
   }
+  await copySourcePdf(documentsRoot(), file.extracted.file, plan.sourcePath);
   try {
     await withTransaction(pool, (client) => insertContract(client, plan));
     file.artist.inserted = true;
@@ -462,6 +467,7 @@ async function commitFile(
         supersedesContractId == null ? "" : ` supersedes ${supersedesContractId}`
       } ${rateSummary(plan.terms)} chunks ${plan.chunks.length}`,
     );
+    io.log(`  source ${plan.sourcePath}`);
     io.log(`  ${cite}`);
     if (dataDir) {
       const sidecar = await writeSidecar(dataDir, name, file.extracted.parsed.text);
@@ -531,6 +537,7 @@ function toPlan(file: ReadyFile, supersedesContractId: number | null): InsertPla
     contractId: file.contractId,
     artistId: artist.id,
     docPath: file.extracted.docPath,
+    sourcePath: sourceRelativePath(basename(file.extracted.file)),
     effectiveFrom: file.terms.meta.effective_from,
     effectiveTo: file.terms.meta.effective_to,
     kind: file.terms.meta.kind,
